@@ -15,6 +15,7 @@ The recovery pass uses Windows-supported actions only:
 - Opt the utility itself out of execution-speed power throttling where Windows supports it.
 - Register the app for Windows restart recovery if the tray process crashes.
 - Restore the tray icon after Explorer/taskbar restarts.
+- Periodically watchdog the low-level keyboard hook and reinstall it if it is missing.
 - Log startup and recovery steps to `ForceUnfreeze.log` beside the executable.
 - Escalate a repeated recovery trigger within 60 seconds into an Explorer restart, while still avoiding a machine reboot.
 

@@ -18,6 +18,7 @@ constexpr UINT ID_TRAY_EXIT = 1001;
 constexpr UINT ID_TRAY_STATUS = 1002;
 constexpr UINT ID_TRAY_MANUAL_RECOVER = 1003;
 constexpr UINT ID_HOLD_TIMER = 2001;
+constexpr UINT ID_WATCHDOG_TIMER = 2002;
 constexpr wchar_t kClassName[] = L"ForceUnfreezeTrayWindow";
 constexpr wchar_t kTooltipBase[] = L"ForceUnfreeze - Active (F1 x5 or hold)";
 constexpr wchar_t kLogFileName[] = L"ForceUnfreeze.log";
@@ -520,6 +521,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CREATE:
         AddTrayIcon(hwnd);
         InstallHook();
+        SetTimer(hwnd, ID_WATCHDOG_TIMER, 30000, nullptr);
         return 0;
     case WM_TRAYICON:
         if (LOWORD(lParam) == WM_RBUTTONUP || LOWORD(lParam) == WM_CONTEXTMENU) {
@@ -560,10 +562,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             KillTimer(hwnd, ID_HOLD_TIMER);
             g_f1DownTick = NowTick();
             TriggerRecovery();
+        } else if (wParam == ID_WATCHDOG_TIMER && !g_keyboardHook) {
+            LogMessage(L"Watchdog noticed missing keyboard hook, reinstalling");
+            InstallHook();
+            UpdateTrayTooltip();
         }
         return 0;
     case WM_DESTROY:
         KillTimer(hwnd, ID_HOLD_TIMER);
+        KillTimer(hwnd, ID_WATCHDOG_TIMER);
         UninstallHook();
         RemoveTrayIcon();
         PostQuitMessage(0);
