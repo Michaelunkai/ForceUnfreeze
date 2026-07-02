@@ -36,9 +36,9 @@ call "$vsDevCmd" -arch=x64 -host_arch=x64
 if errorlevel 1 exit /b %errorlevel%
 rc /nologo /fo "$res" "$rc"
 if errorlevel 1 exit /b %errorlevel%
-cl /nologo /std:c++17 /EHsc /W4 /permissive- /I"$Root\include" /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX $debugFlags /c "$src" /Fo"$obj"
+cl /nologo /std:c++17 /EHsc /W4 /permissive- /guard:cf /I"$Root\include" /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX $debugFlags /c "$src" /Fo"$obj"
 if errorlevel 1 exit /b %errorlevel%
-link /nologo /SUBSYSTEM:WINDOWS /MANIFEST:NO /OUT:"$exe" "$obj" "$res" user32.lib shell32.lib advapi32.lib psapi.lib dwmapi.lib
+link /nologo /SUBSYSTEM:WINDOWS /MANIFEST:NO /GUARD:CF /DYNAMICBASE /NXCOMPAT /OUT:"$exe" "$obj" "$res" user32.lib shell32.lib advapi32.lib psapi.lib dwmapi.lib
 exit /b %errorlevel%
 "@
 
