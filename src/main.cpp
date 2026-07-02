@@ -191,25 +191,6 @@ void PressKey(WORD vk, bool down) {
     SendInput(1, &input, sizeof(input));
 }
 
-void SendGpuDriverResetChord() {
-    PressKey(VK_LWIN, true);
-    Sleep(10);
-    PressKey(VK_CONTROL, true);
-    Sleep(10);
-    PressKey(VK_SHIFT, true);
-    Sleep(10);
-    PressKey('B', true);
-    Sleep(60);
-    PressKey('B', false);
-    Sleep(10);
-    PressKey(VK_SHIFT, false);
-    Sleep(10);
-    PressKey(VK_CONTROL, false);
-    Sleep(10);
-    PressKey(VK_LWIN, false);
-    Sleep(50);
-}
-
 bool LaunchDetached(const wchar_t* commandLine) {
     STARTUPINFOW si{sizeof(si)};
     PROCESS_INFORMATION pi{};
@@ -382,16 +363,10 @@ void FlushDesktopComposition() {
     DwmFlush();
 }
 
-void RefreshDesktop() {
+void RefreshDesktopWindowsOnly() {
     HWND desktop = GetDesktopWindow();
     if (desktop) {
         RedrawWindow(desktop, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
-    }
-    int originalSpeed = 10;
-    if (SystemParametersInfoW(SPI_GETMOUSESPEED, 0, &originalSpeed, 0)) {
-        int pulseSpeed = originalSpeed == 10 ? 11 : 10;
-        SystemParametersInfoW(SPI_SETMOUSESPEED, 0, reinterpret_cast<LPVOID>(static_cast<INT_PTR>(pulseSpeed)), 0);
-        SystemParametersInfoW(SPI_SETMOUSESPEED, 0, reinterpret_cast<LPVOID>(static_cast<INT_PTR>(originalSpeed)), 0);
     }
 }
 
@@ -413,9 +388,6 @@ void RecoveryPass() {
 
     ForceForegroundWindow();
     LogRecoveryStep(L"ForceForegroundWindow", true);
-
-    SendGpuDriverResetChord();
-    LogRecoveryStep(L"SendGpuDriverResetChord", true);
 
     BroadcastResponsivenessNudges();
     LogRecoveryStep(L"BroadcastResponsivenessNudges", true);
@@ -441,8 +413,8 @@ void RecoveryPass() {
     FlushDesktopComposition();
     LogRecoveryStep(L"FlushDesktopComposition", true);
 
-    RefreshDesktop();
-    LogRecoveryStep(L"RefreshDesktop", true);
+    RefreshDesktopWindowsOnly();
+    LogRecoveryStep(L"RefreshDesktopWindowsOnly", true);
 
     EnsureTaskManagerAvailable();
     LogRecoveryStep(L"EnsureTaskManagerAvailable", true);

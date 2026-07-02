@@ -15,7 +15,7 @@ if ($item.Length -le 0) {
 if ($item.VersionInfo.ProductName -ne 'ForceUnfreeze') {
     throw "Unexpected ProductName metadata: $($item.VersionInfo.ProductName)"
 }
-if ($item.VersionInfo.FileVersion -ne '1.3.0.0') {
+if ($item.VersionInfo.FileVersion -ne '1.3.1.0') {
     throw "Unexpected FileVersion metadata: $($item.VersionInfo.FileVersion)"
 }
 

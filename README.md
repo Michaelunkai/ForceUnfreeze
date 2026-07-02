@@ -4,12 +4,12 @@ Native Windows 11 tray utility that listens for `F1` pressed five times within t
 
 The recovery pass uses Windows-supported actions only:
 
-- Synthesize `Win+Ctrl+Shift+B` to ask Windows to reset the graphics driver.
 - Broadcast timeout-safe responsiveness nudges.
 - Nudge visible windows and hung windows through timeout-safe messages.
 - Boost foreground process priority.
 - Trim process working sets.
 - Restart Explorer only if the shell window appears missing or hung.
+- Redraw desktop and visible windows without changing display, GPU, or mouse settings.
 - Open Task Manager as a last-resort operator surface if it is not already open.
 - Keep the recovery worker on a high-priority thread.
 - Opt the utility itself out of execution-speed power throttling where Windows supports it.
@@ -19,6 +19,8 @@ The recovery pass uses Windows-supported actions only:
 - Log startup and recovery steps to `ForceUnfreeze.log` beside the executable.
 - Escalate a repeated recovery trigger within 60 seconds into an Explorer restart, while still avoiding a machine reboot.
 - Show a tray notification when a recovery pass completes.
+
+The current build intentionally does not send `Win+Ctrl+Shift+B` or alter display/mouse settings. Those actions were removed after they caused a red-screen failure on the test machine.
 
 The tray menu includes a status line, `Trigger Recovery`, and `Exit`. Exiting from the tray unhooks the global keyboard hook and removes the tray icon.
 

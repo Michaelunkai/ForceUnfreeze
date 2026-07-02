@@ -2,6 +2,8 @@
 
 ## 1.3.0.0 - 2026-07-03
 
+- Removed GPU-reset hotkey synthesis and display/mouse-setting pulses after a red-screen failure report.
+
 - Added runtime hardening: high process priority, shutdown no-retry behavior, Windows restart registration, and power-throttling opt-out.
 - Added keyboard-hook watchdog recovery.
 - Added Explorer taskbar icon restoration after shell restart.
