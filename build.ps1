@@ -39,6 +39,11 @@ if errorlevel 1 exit /b %errorlevel%
 cl /nologo /std:c++17 /EHsc /W4 /permissive- /guard:cf /I"$Root\include" /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /DNOMINMAX $debugFlags /c "$src" /Fo"$obj"
 if errorlevel 1 exit /b %errorlevel%
 link /nologo /SUBSYSTEM:WINDOWS /MANIFEST:NO /GUARD:CF /DYNAMICBASE /NXCOMPAT /OUT:"$exe" "$obj" "$res" user32.lib shell32.lib advapi32.lib psapi.lib dwmapi.lib
+if errorlevel 1 exit /b %errorlevel%
+mt -nologo -inputresource:"$exe";#1 -out:"$buildDir\embedded.manifest"
+if errorlevel 1 exit /b %errorlevel%
+findstr /C:"requireAdministrator" "$buildDir\embedded.manifest" >nul
+if errorlevel 1 exit /b 12
 exit /b %errorlevel%
 "@
 
@@ -68,7 +73,13 @@ if not exist "$exe" (
 )
 echo Checking manifest...
 if not exist "$buildDir\embedded.manifest" (
-    echo WARNING: Embedded manifest not found
+    echo ERROR: Embedded manifest not found
+    exit /b 1
+)
+findstr /C:"requireAdministrator" "$buildDir\embedded.manifest" >nul
+if errorlevel 1 (
+    echo ERROR: requireAdministrator missing from embedded manifest
+    exit /b 1
 )
 echo Checking resource file...
 if not exist "$buildDir\ForceUnfreeze.res" (
