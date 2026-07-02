@@ -13,6 +13,8 @@ if ($item.Length -le 0) {
     throw "Executable is empty: $ExePath"
 }
 
+$logPath = Join-Path (Split-Path -Parent $ExePath) 'ForceUnfreeze.log'
+
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -41,12 +43,21 @@ if ($still) {
     throw 'ForceUnfreeze did not exit after WM_CLOSE.'
 }
 
+if (-not (Test-Path -LiteralPath $logPath)) {
+    throw "Expected log was not created: $logPath"
+}
+$logText = Get-Content -LiteralPath $logPath -Raw
+if ($logText -notmatch 'Keyboard hook installed') {
+    throw 'Expected keyboard hook log entry was not found.'
+}
+
 [pscustomobject]@{
     ExePath = $ExePath
     Length = $item.Length
     Started = [bool]$alive
     WindowFound = $true
     ExitedAfterClose = $true
+    LogVerified = $true
 }
 
 $p2 = Start-Process -FilePath $ExePath -PassThru

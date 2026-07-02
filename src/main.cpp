@@ -72,8 +72,12 @@ void LogMessage(const wchar_t* message) {
         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile != INVALID_HANDLE_VALUE) {
         SetFilePointer(hFile, 0, nullptr, FILE_END);
-        DWORD written = 0;
-        WriteFile(hFile, logLine, static_cast<DWORD>(wcslen(logLine) * sizeof(wchar_t)), &written, nullptr);
+        char utf8[2048]{};
+        int bytes = WideCharToMultiByte(CP_UTF8, 0, logLine, -1, utf8, static_cast<int>(sizeof(utf8)), nullptr, nullptr);
+        if (bytes > 1) {
+            DWORD written = 0;
+            WriteFile(hFile, utf8, static_cast<DWORD>(bytes - 1), &written, nullptr);
+        }
         CloseHandle(hFile);
     }
 }
