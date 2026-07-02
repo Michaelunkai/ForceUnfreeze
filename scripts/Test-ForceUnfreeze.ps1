@@ -15,7 +15,7 @@ if ($item.Length -le 0) {
 if ($item.VersionInfo.ProductName -ne 'ForceUnfreeze') {
     throw "Unexpected ProductName metadata: $($item.VersionInfo.ProductName)"
 }
-if ($item.VersionInfo.FileVersion -ne '1.3.1.0') {
+if ($item.VersionInfo.FileVersion -ne '1.3.3.0') {
     throw "Unexpected FileVersion metadata: $($item.VersionInfo.FileVersion)"
 }
 
@@ -27,6 +27,50 @@ using System.Runtime.InteropServices;
 public static class ForceUnfreezeSmokeNative {
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string title);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+  [StructLayout(LayoutKind.Sequential)]
+  public struct INPUT {
+    public uint type;
+    public InputUnion U;
+  }
+  [StructLayout(LayoutKind.Explicit)]
+  public struct InputUnion {
+    [FieldOffset(0)] public KEYBDINPUT ki;
+    [FieldOffset(0)] public MOUSEINPUT mi;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct MOUSEINPUT {
+    public int dx;
+    public int dy;
+    public uint mouseData;
+    public uint dwFlags;
+    public uint time;
+    public UIntPtr dwExtraInfo;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  public struct KEYBDINPUT {
+    public ushort wVk;
+    public ushort wScan;
+    public uint dwFlags;
+    public uint time;
+    public UIntPtr dwExtraInfo;
+  }
+  [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+  public const uint INPUT_KEYBOARD = 1;
+  public const uint KEYEVENTF_KEYUP = 0x0002;
+  public static uint TapF1(int count) {
+    uint sent = 0;
+    for (int i = 0; i < count; i++) {
+      INPUT[] inputs = new INPUT[2];
+      inputs[0].type = INPUT_KEYBOARD;
+      inputs[0].U.ki.wVk = 0x70;
+      inputs[1].type = INPUT_KEYBOARD;
+      inputs[1].U.ki.wVk = 0x70;
+      inputs[1].U.ki.dwFlags = KEYEVENTF_KEYUP;
+      sent += SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+      System.Threading.Thread.Sleep(120);
+    }
+    return sent;
+  }
 }
 '@
 
@@ -39,6 +83,30 @@ $hwnd = [ForceUnfreezeSmokeNative]::FindWindow('ForceUnfreezeTrayWindow', 'Force
 if ($hwnd -eq [IntPtr]::Zero) {
     if ($alive) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
     throw 'ForceUnfreeze hidden control window was not found.'
+}
+
+$sent = [ForceUnfreezeSmokeNative]::TapF1(5)
+if ($sent -lt 10) {
+    if ($alive) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+    throw "SendInput failed to send five F1 taps. Sent inputs: $sent"
+}
+
+$deadline = (Get-Date).AddSeconds(8)
+$f1RecoveryVerified = $false
+do {
+    Start-Sleep -Milliseconds 250
+    if (Test-Path -LiteralPath $logPath) {
+        $currentLog = Get-Content -LiteralPath $logPath -Raw
+        if ($currentLog -match 'F1 down detected via' -and $currentLog -match 'Recovery triggered') {
+            $f1RecoveryVerified = $true
+            break
+        }
+    }
+} while ((Get-Date) -lt $deadline)
+
+if (-not $f1RecoveryVerified) {
+    if ($alive) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+    throw 'Five F1 taps did not trigger recovery.'
 }
 
 [ForceUnfreezeSmokeNative]::SendMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
@@ -65,6 +133,7 @@ if ($logText -notmatch 'Keyboard hook installed') {
     ExitedAfterClose = $true
     LogVerified = $true
     VersionVerified = $true
+    F1TriggerVerified = $true
 }
 
 $p2 = Start-Process -FilePath $ExePath -PassThru

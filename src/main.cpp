@@ -19,6 +19,8 @@ constexpr UINT ID_TRAY_STATUS = 1002;
 constexpr UINT ID_TRAY_MANUAL_RECOVER = 1003;
 constexpr UINT ID_HOLD_TIMER = 2001;
 constexpr UINT ID_WATCHDOG_TIMER = 2002;
+constexpr UINT ID_KEY_POLL_TIMER = 2003;
+constexpr int ID_HOTKEY_F1 = 3001;
 constexpr wchar_t kClassName[] = L"ForceUnfreezeTrayWindow";
 constexpr wchar_t kTooltipBase[] = L"ForceUnfreeze - Active (F1 x5 or hold)";
 constexpr wchar_t kLogFileName[] = L"ForceUnfreeze.log";
@@ -29,11 +31,13 @@ HHOOK g_keyboardHook = nullptr;
 NOTIFYICONDATAW g_tray = {};
 std::deque<DWORD> g_f1Presses;
 DWORD g_f1DownTick = 0;
+DWORD g_lastF1AcceptedDownTick = 0;
 bool g_f1IsDown = false;
 DWORD g_lastTriggerTick = 0;
 DWORD g_recoveryCount = 0;
 DWORD g_lastRecoveryDoneTick = 0;
 bool g_hookInstalled = false;
+bool g_hotkeyInstalled = false;
 UINT g_taskbarCreatedMessage = 0;
 std::atomic_bool g_recoveryRunning{false};
 std::atomic_bool g_logEnabled{true};
@@ -444,6 +448,39 @@ void TriggerRecovery() {
     PostMessageW(g_hwnd, WM_RECOVER, 0, 0);
 }
 
+void HandleF1State(bool isDown, DWORD now, const wchar_t* source) {
+    if (isDown && !g_f1IsDown) {
+        if (g_lastF1AcceptedDownTick != 0 && now - g_lastF1AcceptedDownTick < 80) {
+            return;
+        }
+        g_lastF1AcceptedDownTick = now;
+        g_f1IsDown = true;
+        g_f1DownTick = now;
+        SetTimer(g_hwnd, ID_HOLD_TIMER, 100, nullptr);
+        g_f1Presses.push_back(now);
+        while (!g_f1Presses.empty() && now - g_f1Presses.front() > 2000) {
+            g_f1Presses.pop_front();
+        }
+        wchar_t msg[128]{};
+        swprintf_s(msg, L"F1 down detected via %s (count: %zu)", source, g_f1Presses.size());
+        LogMessage(msg);
+        if (g_f1Presses.size() >= 5) {
+            g_f1Presses.clear();
+            TriggerRecovery();
+        }
+    } else if (isDown && g_f1IsDown && g_f1DownTick != 0 && now - g_f1DownTick >= 3000) {
+        wchar_t msg[128]{};
+        swprintf_s(msg, L"F1 hold detected via %s", source);
+        LogMessage(msg);
+        TriggerRecovery();
+        g_f1DownTick = now;
+    } else if (!isDown && g_f1IsDown) {
+        g_f1IsDown = false;
+        g_f1DownTick = 0;
+        KillTimer(g_hwnd, ID_HOLD_TIMER);
+    }
+}
+
 LRESULT CALLBACK KeyboardHookProc(int code, WPARAM wParam, LPARAM lParam) {
     if (code == HC_ACTION) {
         const auto* info = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
@@ -451,26 +488,8 @@ LRESULT CALLBACK KeyboardHookProc(int code, WPARAM wParam, LPARAM lParam) {
             const DWORD now = NowTick();
             const bool keyDown = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
             const bool keyUp = wParam == WM_KEYUP || wParam == WM_SYSKEYUP;
-
-            if (keyDown && !g_f1IsDown) {
-                g_f1IsDown = true;
-                g_f1DownTick = now;
-                SetTimer(g_hwnd, ID_HOLD_TIMER, 100, nullptr);
-                g_f1Presses.push_back(now);
-                while (!g_f1Presses.empty() && now - g_f1Presses.front() > 2000) {
-                    g_f1Presses.pop_front();
-                }
-                if (g_f1Presses.size() >= 5) {
-                    g_f1Presses.clear();
-                    TriggerRecovery();
-                }
-            } else if (keyDown && g_f1IsDown && g_f1DownTick != 0 && now - g_f1DownTick >= 3000) {
-                TriggerRecovery();
-                g_f1DownTick = now;
-            } else if (keyUp) {
-                g_f1IsDown = false;
-                g_f1DownTick = 0;
-                KillTimer(g_hwnd, ID_HOLD_TIMER);
+            if (keyDown || keyUp) {
+                HandleF1State(keyDown, now, L"keyboard hook");
             }
         }
     }
@@ -489,12 +508,24 @@ void InstallHook() {
     SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
 }
 
+void InstallHotkeyFallback(HWND hwnd) {
+    g_hotkeyInstalled = RegisterHotKey(hwnd, ID_HOTKEY_F1, MOD_NOREPEAT, VK_F1) != FALSE;
+    LogMessage(g_hotkeyInstalled ? L"F1 hotkey fallback registered" : L"Failed to register F1 hotkey fallback");
+}
+
 void UninstallHook() {
     if (g_keyboardHook) {
         UnhookWindowsHookEx(g_keyboardHook);
         g_keyboardHook = nullptr;
     }
     g_hookInstalled = false;
+}
+
+void UninstallHotkeyFallback(HWND hwnd) {
+    if (g_hotkeyInstalled) {
+        UnregisterHotKey(hwnd, ID_HOTKEY_F1);
+        g_hotkeyInstalled = false;
+    }
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -508,6 +539,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CREATE:
         AddTrayIcon(hwnd);
         InstallHook();
+        InstallHotkeyFallback(hwnd);
+        SetTimer(hwnd, ID_KEY_POLL_TIMER, 50, nullptr);
         SetTimer(hwnd, ID_WATCHDOG_TIMER, 30000, nullptr);
         return 0;
     case WM_TRAYICON:
@@ -545,11 +578,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         UpdateTrayTooltip();
         ShowTrayInfo(L"ForceUnfreeze", L"Recovery pass completed.");
         return 0;
+    case WM_HOTKEY:
+        if (static_cast<int>(wParam) == ID_HOTKEY_F1) {
+            HandleF1State(true, NowTick(), L"hotkey fallback");
+        }
+        return 0;
     case WM_TIMER:
         if (wParam == ID_HOLD_TIMER && g_f1IsDown && g_f1DownTick != 0 && NowTick() - g_f1DownTick >= 3000) {
             KillTimer(hwnd, ID_HOLD_TIMER);
             g_f1DownTick = NowTick();
+            LogMessage(L"F1 hold detected via hold timer");
             TriggerRecovery();
+        } else if (wParam == ID_KEY_POLL_TIMER) {
+            HandleF1State((GetAsyncKeyState(VK_F1) & 0x8000) != 0, NowTick(), L"async poll");
         } else if (wParam == ID_WATCHDOG_TIMER && !g_keyboardHook) {
             LogMessage(L"Watchdog noticed missing keyboard hook, reinstalling");
             InstallHook();
@@ -558,7 +599,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     case WM_DESTROY:
         KillTimer(hwnd, ID_HOLD_TIMER);
+        KillTimer(hwnd, ID_KEY_POLL_TIMER);
         KillTimer(hwnd, ID_WATCHDOG_TIMER);
+        UninstallHotkeyFallback(hwnd);
         UninstallHook();
         RemoveTrayIcon();
         PostQuitMessage(0);
