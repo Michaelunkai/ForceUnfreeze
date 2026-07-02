@@ -614,6 +614,12 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     HardenSelfRuntime();
 
     HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Global\\ForceUnfreeze.SingleInstance");
+    if (mutex && GetLastError() != ERROR_ALREADY_EXISTS && CommandLineHas(L"--exit")) {
+        LogMessage(L"Exit requested but no existing instance was running");
+        ReleaseMutex(mutex);
+        CloseHandle(mutex);
+        return 0;
+    }
     if (mutex && GetLastError() == ERROR_ALREADY_EXISTS) {
         HWND existing = FindWindowW(kClassName, L"ForceUnfreeze");
         if (existing) {

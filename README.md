@@ -22,6 +22,13 @@ The tray menu includes a status line, `Trigger Recovery`, and `Exit`. Exiting fr
 
 If ForceUnfreeze is already running, launching `ForceUnfreeze.exe` again requests a recovery pass from the existing tray process. Launching `ForceUnfreeze.exe --exit` asks the existing tray process to exit cleanly.
 
+Wrapper scripts:
+
+```powershell
+.\scripts\Invoke-ForceUnfreezeRecovery.ps1
+.\scripts\Stop-ForceUnfreeze.ps1
+```
+
 Build:
 
 ```powershell
