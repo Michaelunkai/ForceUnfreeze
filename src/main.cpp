@@ -288,8 +288,14 @@ bool RestartProcessByName(const wchar_t* exeName, const wchar_t* launchCommand) 
 
     bool restarted = false;
     const DWORD count = bytesNeeded / sizeof(DWORD);
+    DWORD currentSession = 0;
+    ProcessIdToSessionId(GetCurrentProcessId(), &currentSession);
     for (DWORD i = 0; i < count; ++i) {
         if (pids[i] == 0 || pids[i] == GetCurrentProcessId()) {
+            continue;
+        }
+        DWORD processSession = 0;
+        if (!ProcessIdToSessionId(pids[i], &processSession) || processSession != currentSession) {
             continue;
         }
         HANDLE process = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pids[i]);
