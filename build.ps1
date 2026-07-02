@@ -1,7 +1,8 @@
 param(
     [ValidateSet('Release','Debug')]
     [string]$Configuration = 'Release',
-    [switch]$InstallStartup
+    [switch]$InstallStartup,
+    [switch]$InstallScheduledTask
 )
 
 $ErrorActionPreference = 'Stop'
@@ -89,6 +90,16 @@ if ($InstallStartup) {
     $shortcut.IconLocation = "$exe,0"
     $shortcut.Save()
     Write-Host "Installed startup shortcut: $shortcutPath"
+}
+
+if ($InstallScheduledTask) {
+    $taskName = 'ForceUnfreeze'
+    $quotedExe = '"' + $exe + '"'
+    schtasks.exe /Create /TN $taskName /TR $quotedExe /SC ONLOGON /RL HIGHEST /F | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to install scheduled task $taskName"
+    }
+    Write-Host "Installed scheduled task: $taskName"
 }
 
 Write-Host "ForceUnfreeze executable: $exe"

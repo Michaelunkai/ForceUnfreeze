@@ -33,6 +33,20 @@ Optional startup shortcut:
 .\build.ps1 -InstallStartup
 ```
 
+Optional elevated logon scheduled task:
+
+```powershell
+.\build.ps1 -InstallScheduledTask
+# or
+.\scripts\Install-ForceUnfreezeScheduledTask.ps1
+```
+
+Remove the scheduled task:
+
+```powershell
+.\scripts\Uninstall-ForceUnfreezeScheduledTask.ps1
+```
+
 Smoke test:
 
 ```powershell
