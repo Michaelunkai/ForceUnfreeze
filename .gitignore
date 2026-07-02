@@ -1,0 +1,9 @@
+build/
+*.obj
+*.res
+*.pdb
+*.ilk
+*.log
+*.user
+*.suo
+*.VC.db
