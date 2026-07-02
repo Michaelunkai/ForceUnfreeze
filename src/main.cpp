@@ -129,6 +129,17 @@ void UpdateTrayTooltip() {
     Shell_NotifyIconW(NIM_MODIFY, &g_tray);
 }
 
+void ShowTrayInfo(const wchar_t* title, const wchar_t* text) {
+    if (g_tray.cbSize == 0) {
+        return;
+    }
+    g_tray.uFlags = NIF_INFO;
+    wcsncpy_s(g_tray.szInfoTitle, title, _TRUNCATE);
+    wcsncpy_s(g_tray.szInfo, text, _TRUNCATE);
+    g_tray.dwInfoFlags = NIIF_INFO;
+    Shell_NotifyIconW(NIM_MODIFY, &g_tray);
+}
+
 void AddTrayIcon(HWND hwnd) {
     RemoveTrayIcon();
     g_tray = {};
@@ -556,6 +567,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_lastRecoveryDoneTick = NowTick();
         g_recoveryRunning.store(false);
         UpdateTrayTooltip();
+        ShowTrayInfo(L"ForceUnfreeze", L"Recovery pass completed.");
         return 0;
     case WM_TIMER:
         if (wParam == ID_HOLD_TIMER && g_f1IsDown && g_f1DownTick != 0 && NowTick() - g_f1DownTick >= 3000) {

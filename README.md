@@ -18,6 +18,7 @@ The recovery pass uses Windows-supported actions only:
 - Periodically watchdog the low-level keyboard hook and reinstall it if it is missing.
 - Log startup and recovery steps to `ForceUnfreeze.log` beside the executable.
 - Escalate a repeated recovery trigger within 60 seconds into an Explorer restart, while still avoiding a machine reboot.
+- Show a tray notification when a recovery pass completes.
 
 The tray menu includes a status line, `Trigger Recovery`, and `Exit`. Exiting from the tray unhooks the global keyboard hook and removes the tray icon.
 
