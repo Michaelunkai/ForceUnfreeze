@@ -81,3 +81,17 @@ if (Get-Process -Id $p2.Id -ErrorAction SilentlyContinue) {
     ExitRequesterCode = $exitRequester.ExitCode
     ExistingInstanceExited = $true
 }
+
+$noInstanceExit = Start-Process -FilePath $ExePath -ArgumentList '--exit' -PassThru
+$noInstanceExit.WaitForExit(5000) | Out-Null
+Start-Sleep -Milliseconds 500
+$leftovers = Get-Process ForceUnfreeze -ErrorAction SilentlyContinue
+if ($leftovers) {
+    $leftovers | Stop-Process -Force -ErrorAction SilentlyContinue
+    throw 'ForceUnfreeze --exit with no existing instance left a process running.'
+}
+
+[pscustomobject]@{
+    NoExistingInstanceExitCode = $noInstanceExit.ExitCode
+    NoExistingInstanceLeftProcess = $false
+}
