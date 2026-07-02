@@ -5,6 +5,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <string>
 
@@ -19,6 +20,7 @@ constexpr UINT ID_TRAY_MANUAL_RECOVER = 1003;
 constexpr UINT ID_HOLD_TIMER = 2001;
 constexpr wchar_t kClassName[] = L"ForceUnfreezeTrayWindow";
 constexpr wchar_t kTooltipBase[] = L"ForceUnfreeze - Active (F1 x5 or hold)";
+constexpr wchar_t kLogFileName[] = L"ForceUnfreeze.log";
 
 HINSTANCE g_instance = nullptr;
 HWND g_hwnd = nullptr;
@@ -30,17 +32,83 @@ bool g_f1IsDown = false;
 DWORD g_lastTriggerTick = 0;
 DWORD g_recoveryCount = 0;
 DWORD g_lastRecoveryDoneTick = 0;
+bool g_hookInstalled = false;
+UINT g_taskbarCreatedMessage = 0;
 std::atomic_bool g_recoveryRunning{false};
+std::atomic_bool g_logEnabled{true};
 
 using IsHungAppWindowFn = BOOL(WINAPI *)(HWND);
 IsHungAppWindowFn g_isHungAppWindow = nullptr;
+
+void RemoveTrayIcon();
+
+std::wstring g_logPath;
+
+void InitializeLog() {
+    wchar_t exePath[MAX_PATH]{};
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring path(exePath);
+    auto pos = path.find_last_of(L'\\');
+    if (pos != std::wstring::npos) {
+        path = path.substr(0, pos + 1);
+    }
+    path += kLogFileName;
+    g_logPath = path;
+}
+
+void LogMessage(const wchar_t* message) {
+    if (!g_logEnabled.load() || g_logPath.empty()) {
+        return;
+    }
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    struct tm tm_buf{};
+    localtime_s(&tm_buf, &time_t);
+    wchar_t timestamp[32]{};
+    swprintf_s(timestamp, L"%02d:%02d:%02d", tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec);
+    wchar_t logLine[512]{};
+    swprintf_s(logLine, L"[%s] %s\r\n", timestamp, message);
+    HANDLE hFile = CreateFileW(g_logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        SetFilePointer(hFile, 0, nullptr, FILE_END);
+        DWORD written = 0;
+        WriteFile(hFile, logLine, static_cast<DWORD>(wcslen(logLine) * sizeof(wchar_t)), &written, nullptr);
+        CloseHandle(hFile);
+    }
+}
+
+void LogRecoveryStart() {
+    LogMessage(L"--- Recovery pass started ---");
+}
+
+void LogRecoveryStep(const wchar_t* step, bool success) {
+    wchar_t msg[256]{};
+    swprintf_s(msg, L"  [%s] %s", success ? L"OK" : L"SKIP", step);
+    LogMessage(msg);
+}
+
+void LogRecoveryEnd() {
+    wchar_t msg[128]{};
+    swprintf_s(msg, L"--- Recovery pass completed (total: %lu) ---", g_recoveryCount);
+    LogMessage(msg);
+}
 
 DWORD NowTick() {
     return GetTickCount();
 }
 
 bool CooldownElapsed(DWORD now) {
-    return g_lastTriggerTick == 0 || now - g_lastTriggerTick > 4000;
+    if (g_lastTriggerTick == 0) {
+        return true;
+    }
+    DWORD elapsed = now - g_lastTriggerTick;
+    return elapsed > 4000;
+}
+
+bool CommandLineHas(const wchar_t* needle) {
+    std::wstring commandLine = GetCommandLineW();
+    return commandLine.find(needle) != std::wstring::npos;
 }
 
 void UpdateTrayTooltip() {
@@ -56,6 +124,7 @@ void UpdateTrayTooltip() {
 }
 
 void AddTrayIcon(HWND hwnd) {
+    RemoveTrayIcon();
     g_tray = {};
     g_tray.cbSize = sizeof(g_tray);
     g_tray.hWnd = hwnd;
@@ -63,8 +132,8 @@ void AddTrayIcon(HWND hwnd) {
     g_tray.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     g_tray.uCallbackMessage = WM_TRAYICON;
     g_tray.hIcon = LoadIconW(g_instance, MAKEINTRESOURCEW(101));
-    UpdateTrayTooltip();
     Shell_NotifyIconW(NIM_ADD, &g_tray);
+    UpdateTrayTooltip();
 }
 
 void RemoveTrayIcon() {
@@ -89,7 +158,7 @@ void ShowTrayMenu(HWND hwnd) {
     }
     AppendMenuW(menu, MF_STRING | MF_GRAYED, ID_TRAY_STATUS, statusText);
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, ID_TRAY_MANUAL_RECOVER, L"Trigger Recovery");
+    AppendMenuW(menu, g_recoveryRunning.load() ? MF_STRING | MF_GRAYED : MF_STRING, ID_TRAY_MANUAL_RECOVER, L"Trigger Recovery");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_TRAY_EXIT, L"Exit");
     SetForegroundWindow(hwnd);
@@ -107,14 +176,21 @@ void PressKey(WORD vk, bool down) {
 
 void SendGpuDriverResetChord() {
     PressKey(VK_LWIN, true);
+    Sleep(10);
     PressKey(VK_CONTROL, true);
+    Sleep(10);
     PressKey(VK_SHIFT, true);
+    Sleep(10);
     PressKey('B', true);
-    Sleep(40);
+    Sleep(60);
     PressKey('B', false);
+    Sleep(10);
     PressKey(VK_SHIFT, false);
+    Sleep(10);
     PressKey(VK_CONTROL, false);
+    Sleep(10);
     PressKey(VK_LWIN, false);
+    Sleep(50);
 }
 
 bool LaunchDetached(const wchar_t* commandLine) {
@@ -142,7 +218,7 @@ BOOL CALLBACK NudgeWindowProc(HWND hwnd, LPARAM) {
 
     DWORD pid = 0;
     GetWindowThreadProcessId(hwnd, &pid);
-    if (pid == GetCurrentProcessId()) {
+    if (pid == 0 || pid == GetCurrentProcessId()) {
         return TRUE;
     }
 
@@ -150,6 +226,7 @@ BOOL CALLBACK NudgeWindowProc(HWND hwnd, LPARAM) {
     if (g_isHungAppWindow && g_isHungAppWindow(hwnd)) {
         PostMessageW(hwnd, WM_CANCELMODE, 0, 0);
         PostMessageW(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+        Sleep(50);
         PostMessageW(hwnd, WM_SYSCOMMAND, SC_RESTORE, 0);
         RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
     }
@@ -200,12 +277,16 @@ bool RestartProcessByName(const wchar_t* exeName, const wchar_t* launchCommand) 
     DWORD bytesNeeded = 0;
     std::array<DWORD, 4096> pids{};
     if (!EnumProcesses(pids.data(), static_cast<DWORD>(pids.size() * sizeof(DWORD)), &bytesNeeded)) {
+        LogMessage(L"EnumProcesses failed");
         return false;
     }
 
     bool restarted = false;
     const DWORD count = bytesNeeded / sizeof(DWORD);
     for (DWORD i = 0; i < count; ++i) {
+        if (pids[i] == 0 || pids[i] == GetCurrentProcessId()) {
+            continue;
+        }
         HANDLE process = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pids[i]);
         if (!process) {
             continue;
@@ -227,7 +308,7 @@ bool RestartProcessByName(const wchar_t* exeName, const wchar_t* launchCommand) 
         STARTUPINFOW si{sizeof(si)};
         PROCESS_INFORMATION pi{};
         std::wstring cmd = launchCommand;
-        if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+        if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NEW_PROCESS_GROUP, nullptr, nullptr, &si, &pi)) {
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
         }
@@ -246,6 +327,7 @@ void RecoverShellIfHung() {
         shellHung = shellHung || g_isHungAppWindow(taskbar) != FALSE;
     }
     if (shellHung) {
+        LogMessage(L"Shell hung or missing, restarting explorer");
         RestartProcessByName(L"explorer.exe", L"explorer.exe");
     }
 }
@@ -259,37 +341,81 @@ void ClearForegroundLock() {
 void ForceForegroundWindow() {
     HWND fg = GetForegroundWindow();
     if (fg) {
+        DWORD currentThread = GetCurrentThreadId();
+        DWORD targetThread = GetWindowThreadProcessId(fg, nullptr);
+        if (targetThread && targetThread != currentThread) {
+            AttachThreadInput(currentThread, targetThread, TRUE);
+        }
         SetForegroundWindow(fg);
         SetWindowPos(fg, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        RedrawWindow(fg, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        if (targetThread && targetThread != currentThread) {
+            AttachThreadInput(currentThread, targetThread, FALSE);
+        }
     }
 }
 
-void ResetDwmComposition() {
-    DwmEnableComposition(DWM_EC_ENABLECOMPOSITION);
+void FlushDesktopComposition() {
+    DwmFlush();
+}
+
+void RefreshDesktop() {
+    HWND desktop = GetDesktopWindow();
+    if (desktop) {
+        RedrawWindow(desktop, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    }
+    SystemParametersInfoW(SPI_SETMOUSESPEED, 0, reinterpret_cast<LPVOID>(10), 0);
+    SystemParametersInfoW(SPI_SETMOUSESPEED, 0, reinterpret_cast<LPVOID>(11), 0);
 }
 
 void EnsureTaskManagerAvailable() {
     if (!FindWindowW(nullptr, L"Task Manager")) {
+        LogMessage(L"Task Manager not found, launching");
         LaunchDetached(L"taskmgr.exe");
     }
 }
 
 void RecoveryPass() {
+    LogRecoveryStart();
     SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
     UpdateTrayTooltip();
 
     ClearForegroundLock();
+    LogRecoveryStep(L"ClearForegroundLock", true);
+
     ForceForegroundWindow();
+    LogRecoveryStep(L"ForceForegroundWindow", true);
+
     SendGpuDriverResetChord();
+    LogRecoveryStep(L"SendGpuDriverResetChord", true);
+
     BroadcastResponsivenessNudges();
+    LogRecoveryStep(L"BroadcastResponsivenessNudges", true);
+
     BoostForegroundResponsiveness();
+    LogRecoveryStep(L"BoostForegroundResponsiveness", true);
+
     EnumWindows(NudgeWindowProc, 0);
+    LogRecoveryStep(L"EnumWindows/NudgeWindowProc", true);
+
     EmptyProcessWorkingSets();
+    LogRecoveryStep(L"EmptyProcessWorkingSets", true);
+
     RecoverShellIfHung();
-    ResetDwmComposition();
+    LogRecoveryStep(L"RecoverShellIfHung", true);
+
+    FlushDesktopComposition();
+    LogRecoveryStep(L"FlushDesktopComposition", true);
+
+    RefreshDesktop();
+    LogRecoveryStep(L"RefreshDesktop", true);
+
     EnsureTaskManagerAvailable();
+    LogRecoveryStep(L"EnsureTaskManagerAvailable", true);
+
     DwmFlush();
     SetThreadExecutionState(ES_CONTINUOUS);
+    LogRecoveryEnd();
 }
 
 DWORD WINAPI RecoveryThreadProc(void*) {
@@ -300,10 +426,11 @@ DWORD WINAPI RecoveryThreadProc(void*) {
 
 void TriggerRecovery() {
     const DWORD now = NowTick();
-    if (!CooldownElapsed(now) || g_recoveryRunning.exchange(true)) {
+    if (!CooldownElapsed(now)) {
         return;
     }
     g_lastTriggerTick = now;
+    LogMessage(L"Recovery triggered");
     PostMessageW(g_hwnd, WM_RECOVER, 0, 0);
 }
 
@@ -342,6 +469,13 @@ LRESULT CALLBACK KeyboardHookProc(int code, WPARAM wParam, LPARAM lParam) {
 
 void InstallHook() {
     g_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, g_instance, 0);
+    if (!g_keyboardHook) {
+        g_hookInstalled = false;
+        LogMessage(L"Failed to install keyboard hook");
+    } else {
+        g_hookInstalled = true;
+        LogMessage(L"Keyboard hook installed");
+    }
     SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
 }
 
@@ -350,9 +484,16 @@ void UninstallHook() {
         UnhookWindowsHookEx(g_keyboardHook);
         g_keyboardHook = nullptr;
     }
+    g_hookInstalled = false;
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == g_taskbarCreatedMessage) {
+        AddTrayIcon(hwnd);
+        LogMessage(L"TaskbarCreated received, tray icon restored");
+        return 0;
+    }
+
     switch (msg) {
     case WM_CREATE:
         AddTrayIcon(hwnd);
@@ -372,10 +513,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
     case WM_RECOVER:
         {
+            if (g_recoveryRunning.exchange(true)) {
+                return 0;
+            }
             HANDLE thread = CreateThread(nullptr, 0, RecoveryThreadProc, nullptr, 0, nullptr);
             if (thread) {
+                SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST);
+                LogMessage(L"Recovery thread created");
                 CloseHandle(thread);
             } else {
+                LogMessage(L"Failed to create recovery thread");
                 g_recoveryRunning.store(false);
             }
         }
@@ -427,20 +574,52 @@ void LoadOptionalApis() {
     }
 }
 
+void HardenSelfRuntime() {
+    SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+    SetProcessShutdownParameters(0x100, SHUTDOWN_NORETRY);
+    RegisterApplicationRestart(nullptr, 0);
+
+    PROCESS_POWER_THROTTLING_STATE throttling{};
+    throttling.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    throttling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+    throttling.StateMask = 0;
+    SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling, sizeof(throttling));
+    LogMessage(L"Runtime hardening applied");
+}
+
 } // namespace
 
 int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     g_instance = hInstance;
+    InitializeLog();
+    LogMessage(L"ForceUnfreeze starting");
+    g_taskbarCreatedMessage = RegisterWindowMessageW(L"TaskbarCreated");
     LoadOptionalApis();
+    HardenSelfRuntime();
 
     HANDLE mutex = CreateMutexW(nullptr, TRUE, L"Global\\ForceUnfreeze.SingleInstance");
     if (mutex && GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND existing = FindWindowW(kClassName, L"ForceUnfreeze");
+        if (existing) {
+            if (CommandLineHas(L"--exit")) {
+                PostMessageW(existing, WM_CLOSE, 0, 0);
+                LogMessage(L"Another instance is running, requested clean exit from existing instance");
+            } else {
+                PostMessageW(existing, WM_RECOVER, 0, 0);
+                LogMessage(L"Another instance is running, requested recovery from existing instance");
+            }
+        } else {
+            LogMessage(L"Another instance is already running but window was not found");
+        }
+        CloseHandle(mutex);
         return 0;
     }
 
     if (!RegisterWindowClass() || !CreateHiddenWindow()) {
+        LogMessage(L"Failed to register window class or create hidden window");
         return 1;
     }
+    LogMessage(L"ForceUnfreeze initialized successfully");
 
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

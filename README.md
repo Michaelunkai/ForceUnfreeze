@@ -11,8 +11,15 @@ The recovery pass uses Windows-supported actions only:
 - Trim process working sets.
 - Restart Explorer only if the shell window appears missing or hung.
 - Open Task Manager as a last-resort operator surface if it is not already open.
+- Keep the recovery worker on a high-priority thread.
+- Opt the utility itself out of execution-speed power throttling where Windows supports it.
+- Register the app for Windows restart recovery if the tray process crashes.
+- Restore the tray icon after Explorer/taskbar restarts.
+- Log startup and recovery steps to `ForceUnfreeze.log` beside the executable.
 
 The tray menu includes a status line, `Trigger Recovery`, and `Exit`. Exiting from the tray unhooks the global keyboard hook and removes the tray icon.
+
+If ForceUnfreeze is already running, launching `ForceUnfreeze.exe` again requests a recovery pass from the existing tray process. Launching `ForceUnfreeze.exe --exit` asks the existing tray process to exit cleanly.
 
 Build:
 
@@ -24,4 +31,10 @@ Optional startup shortcut:
 
 ```powershell
 .\build.ps1 -InstallStartup
+```
+
+Smoke test:
+
+```powershell
+.\scripts\Test-ForceUnfreeze.ps1
 ```

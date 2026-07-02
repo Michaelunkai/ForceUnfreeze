@@ -52,6 +52,33 @@ if (-not (Test-Path $exe)) {
     throw "Build did not produce $exe"
 }
 
+$fileInfo = Get-Item $exe
+Write-Host "Build successful: $exe"
+Write-Host "Size: $([math]::Round($fileInfo.Length / 1KB, 2)) KB"
+Write-Host "Modified: $($fileInfo.LastWriteTime)"
+
+$verifyCmd = @"
+@echo off
+echo === ForceUnfreeze Build Verification ===
+echo Checking executable...
+if not exist "$exe" (
+    echo ERROR: Executable not found
+    exit /b 1
+)
+echo Checking manifest...
+if not exist "$buildDir\embedded.manifest" (
+    echo WARNING: Embedded manifest not found
+)
+echo Checking resource file...
+if not exist "$buildDir\ForceUnfreeze.res" (
+    echo WARNING: Resource file not found
+)
+echo Build verification complete.
+"@
+$verifyPath = Join-Path $buildDir 'verify.cmd'
+Set-Content -LiteralPath $verifyPath -Value $verifyCmd -Encoding ASCII
+& cmd.exe /c "`"$verifyPath`""
+
 if ($InstallStartup) {
     $startup = [Environment]::GetFolderPath('Startup')
     $shortcutPath = Join-Path $startup 'ForceUnfreeze.lnk'
