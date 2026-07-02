@@ -12,6 +12,12 @@ $item = Get-Item -LiteralPath $ExePath
 if ($item.Length -le 0) {
     throw "Executable is empty: $ExePath"
 }
+if ($item.VersionInfo.ProductName -ne 'ForceUnfreeze') {
+    throw "Unexpected ProductName metadata: $($item.VersionInfo.ProductName)"
+}
+if ($item.VersionInfo.FileVersion -ne '1.2.0.0') {
+    throw "Unexpected FileVersion metadata: $($item.VersionInfo.FileVersion)"
+}
 
 $logPath = Join-Path (Split-Path -Parent $ExePath) 'ForceUnfreeze.log'
 
@@ -58,6 +64,7 @@ if ($logText -notmatch 'Keyboard hook installed') {
     WindowFound = $true
     ExitedAfterClose = $true
     LogVerified = $true
+    VersionVerified = $true
 }
 
 $p2 = Start-Process -FilePath $ExePath -PassThru
