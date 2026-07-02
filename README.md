@@ -16,6 +16,7 @@ The recovery pass uses Windows-supported actions only:
 - Register the app for Windows restart recovery if the tray process crashes.
 - Restore the tray icon after Explorer/taskbar restarts.
 - Log startup and recovery steps to `ForceUnfreeze.log` beside the executable.
+- Escalate a repeated recovery trigger within 60 seconds into an Explorer restart, while still avoiding a machine reboot.
 
 The tray menu includes a status line, `Trigger Recovery`, and `Exit`. Exiting from the tray unhooks the global keyboard hook and removes the tray icon.
 

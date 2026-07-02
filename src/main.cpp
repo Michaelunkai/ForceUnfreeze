@@ -36,6 +36,7 @@ bool g_hookInstalled = false;
 UINT g_taskbarCreatedMessage = 0;
 std::atomic_bool g_recoveryRunning{false};
 std::atomic_bool g_logEnabled{true};
+std::atomic_bool g_escalatedRecovery{false};
 
 using IsHungAppWindowFn = BOOL(WINAPI *)(HWND);
 IsHungAppWindowFn g_isHungAppWindow = nullptr;
@@ -381,6 +382,7 @@ void EnsureTaskManagerAvailable() {
 
 void RecoveryPass() {
     LogRecoveryStart();
+    const bool escalated = g_escalatedRecovery.exchange(false);
     SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
     UpdateTrayTooltip();
 
@@ -408,6 +410,12 @@ void RecoveryPass() {
     RecoverShellIfHung();
     LogRecoveryStep(L"RecoverShellIfHung", true);
 
+    if (escalated) {
+        LogMessage(L"Escalated recovery requested, restarting Explorer");
+        RestartProcessByName(L"explorer.exe", L"explorer.exe");
+        LogRecoveryStep(L"EscalatedExplorerRestart", true);
+    }
+
     FlushDesktopComposition();
     LogRecoveryStep(L"FlushDesktopComposition", true);
 
@@ -432,6 +440,10 @@ void TriggerRecovery() {
     const DWORD now = NowTick();
     if (!CooldownElapsed(now)) {
         return;
+    }
+    if (g_lastRecoveryDoneTick != 0 && now - g_lastRecoveryDoneTick < 60000) {
+        g_escalatedRecovery.store(true);
+        LogMessage(L"Recovery escalation armed");
     }
     g_lastTriggerTick = now;
     LogMessage(L"Recovery triggered");
