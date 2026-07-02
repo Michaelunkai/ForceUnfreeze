@@ -387,8 +387,12 @@ void RefreshDesktop() {
     if (desktop) {
         RedrawWindow(desktop, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN | RDW_UPDATENOW);
     }
-    SystemParametersInfoW(SPI_SETMOUSESPEED, 0, reinterpret_cast<LPVOID>(10), 0);
-    SystemParametersInfoW(SPI_SETMOUSESPEED, 0, reinterpret_cast<LPVOID>(11), 0);
+    int originalSpeed = 10;
+    if (SystemParametersInfoW(SPI_GETMOUSESPEED, 0, &originalSpeed, 0)) {
+        int pulseSpeed = originalSpeed == 10 ? 11 : 10;
+        SystemParametersInfoW(SPI_SETMOUSESPEED, 0, reinterpret_cast<LPVOID>(static_cast<INT_PTR>(pulseSpeed)), 0);
+        SystemParametersInfoW(SPI_SETMOUSESPEED, 0, reinterpret_cast<LPVOID>(static_cast<INT_PTR>(originalSpeed)), 0);
+    }
 }
 
 void EnsureTaskManagerAvailable() {
